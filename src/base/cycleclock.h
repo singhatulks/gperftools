@@ -71,6 +71,8 @@ extern "C" uint64 __rdtsc();
 #include <sys/time.h>
 #endif
 
+#include <time.h>
+
 // NOTE: only i386 and x86_64 have been well tested.
 // PPC, sparc, alpha, and ia64 are based on
 //    http://peter.kuscsik.com/wordpress/?p=14
@@ -166,6 +168,12 @@ struct CycleClock {
 // a fast implementation and use generic version if nothing better is available.
 #error You need to define CycleTimer for your O/S and CPU
 #endif
+  }
+
+  static inline uint64 UptimeUsec() {
+    struct timespec res;
+    clock_gettime(CLOCK_MONOTONIC, &res);
+    return ((uint64) res.tv_sec *  1000000) + (res.tv_nsec / 1000);
   }
 };
 

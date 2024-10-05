@@ -1,11 +1,11 @@
 // -*- Mode: C++; c-basic-offset: 2; indent-tabs-mode: nil -*-
 /* Copyright (c) 2006, Google Inc.
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
  * met:
- * 
+ *
  *     * Redistributions of source code must retain the above copyright
  * notice, this list of conditions and the following disclaimer.
  *     * Redistributions in binary form must reproduce the above
@@ -15,7 +15,7 @@
  *     * Neither the name of Google Inc. nor the names of its
  * contributors may be used to endorse or promote products derived from
  * this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -97,7 +97,9 @@ void SpinLock::SlowLock() {
   // it.  Record the current timestamp in the local variable wait_start_time
   // so the total wait time can be stored in the lockword once this thread
   // obtains the lock.
-  int64 wait_start_time = CycleClock::Now();
+  int64 wait_start_time = CycleClock::UptimeUsec();
+  int64 sleep_start_time = 0;
+  Atomic32 sleep_cycles = 0;
   Atomic32 wait_cycles;
   Atomic32 lock_value = SpinLoop(wait_start_time, &wait_cycles);
 
@@ -129,12 +131,16 @@ void SpinLock::SlowLock() {
     }
 
     // Wait for an OS specific delay.
+    sleep_start_time = CycleClock::UptimeUsec();
     base::internal::SpinLockDelay(&lockword_, lock_value,
                                   ++lock_wait_call_count);
+    sleep_cycles += CycleClock::UptimeUsec() - sleep_start_time;
     // Spin again after returning from the wait routine to give this thread
     // some chance of obtaining the lock.
     lock_value = SpinLoop(wait_start_time, &wait_cycles);
   }
+  cumulative_lock_usec_ += wait_cycles;
+  cumulative_lock_sleep_usec_ += sleep_cycles;
 }
 
 // The wait time for contentionz lock profiling must fit into 32 bits.
@@ -172,8 +178,7 @@ void SpinLock::SlowUnlock(uint64 wait_cycles) {
 }
 
 inline int32 SpinLock::CalculateWaitCycles(int64 wait_start_time) {
-  int32 wait_cycles = ((CycleClock::Now() - wait_start_time) >>
-                       PROFILE_TIMESTAMP_SHIFT);
+  int32 wait_cycles = (CycleClock::UptimeUsec() - wait_start_time);
   // The number of cycles waiting for the lock is used as both the
   // wait_cycles and lock value, so it can't be kSpinLockFree or
   // kSpinLockHeld.  Make sure the value returned is at least

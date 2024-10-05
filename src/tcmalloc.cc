@@ -474,11 +474,47 @@ static void DumpStats(TCMalloc_Printer* out, int level) {
   }
 }
 
+static void DumpLockStats(TCMalloc_Printer* out) {
+  uint64 cc_usecs, cc_sleep_usecs, ph_usecs, ph_sleep_usecs;
+  uint64 total_cc_usecs = 0;
+  uint64 total_cc_sleep_usecs = 0;
+
+  out->printf("------------------------------------------------\n");
+
+  for (int cl = 0; cl < kNumClasses; ++cl) {
+    cc_usecs = Static::central_cache()[cl].Lock_CumulativeWaitUsec();
+    cc_sleep_usecs = Static::central_cache()[cl].Lock_CumulativeSleepUsec();
+    total_cc_usecs += cc_usecs;
+    total_cc_sleep_usecs += cc_usecs;
+    out->printf("LOCK_STATS: class %3d : ( %8.3f secs) (sleep wait ratio: %1.3f)\n",
+                cl,
+                cc_usecs / 1000000.0,
+                cc_usecs ? (static_cast<float>(cc_sleep_usecs) / cc_usecs) : 1.0);
+  }
+
+  out->printf("------------------------------------------------\n");
+  out->printf("LOCK_STATS:             ( %8.3f secs) in Central Cache (sleep wait ratio: %1.3f)\n",
+              total_cc_usecs / 1000000.0,
+              total_cc_usecs ? (static_cast<float>(total_cc_sleep_usecs) / total_cc_usecs) : 1.0);
+
+  ph_usecs = Static::pageheap_lock()->CumulativeWaitUsec();
+  ph_sleep_usecs = Static::pageheap_lock()->CumulativeSleepUsec();
+  out->printf("LOCK_STATS:             ( %8.3f secs ) in Pageheap (sleep wait ratio: %1.3f)\n",
+              ph_usecs / 1000000.0,
+              ph_usecs ? (static_cast<float>(ph_sleep_usecs) / ph_usecs) : 1.0);
+
+  out->printf("LOCK_STATS:             ( %8.3f secs ) Total (Central Cache + Pageheap) (sleep wait ratio: %1.3f)\n",
+              (total_cc_usecs + ph_usecs) / 1000000.0,
+              (total_cc_usecs + ph_usecs) ? (static_cast<float>(total_cc_sleep_usecs + ph_sleep_usecs)/(total_cc_usecs + ph_usecs)) : 1.0);
+  out->printf("------------------------------------------------\n");
+}
+
 static void PrintStats(int level) {
   const int kBufferSize = 16 << 10;
   char* buffer = new char[kBufferSize];
   TCMalloc_Printer printer(buffer, kBufferSize);
   DumpStats(&printer, level);
+  DumpLockStats(&printer);
   write(STDERR_FILENO, buffer, strlen(buffer));
   delete[] buffer;
 }

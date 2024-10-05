@@ -90,6 +90,14 @@ class CentralFreeList {
     lock_.Unlock();
   }
 
+  int64 Lock_CumulativeWaitUsec() {
+    return lock_.CumulativeWaitUsec();
+  }
+
+  int64 Lock_CumulativeSleepUsec() {
+    return lock_.CumulativeSleepUsec();
+  }
+
  private:
   // TransferCache is used to cache transfers of
   // sizemap.num_objects_to_move(size_class) back and forth between
