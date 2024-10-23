@@ -474,6 +474,16 @@ static void DumpStats(TCMalloc_Printer* out, int level) {
   }
 }
 
+static void ResetLockStats() {
+  for (int cl = 0; cl < kNumClasses; ++cl) {
+    Static::central_cache()[cl].Lock()
+    Static::central_cache()[cl].Lock_ResetLockStats();
+    Static::central_cache()[cl].Unlock()
+  }
+  SpinLockHolder l(Static::pageheap_lock());
+  Static::pageheap_lock()->ResetLockStats();
+}
+
 static void DumpLockStats(TCMalloc_Printer* out) {
   uint64 cc_usecs, cc_sleep_usecs, ph_usecs, ph_sleep_usecs;
   uint64 total_cc_usecs = 0;
@@ -507,6 +517,8 @@ static void DumpLockStats(TCMalloc_Printer* out) {
               (total_cc_usecs + ph_usecs) / 1000000.0,
               (total_cc_usecs + ph_usecs) ? (static_cast<float>(total_cc_sleep_usecs + ph_sleep_usecs)/(total_cc_usecs + ph_usecs)) : 1.0);
   out->printf("------------------------------------------------\n");
+
+  ResetLockStats();
 }
 
 static void PrintStats(int level) {

@@ -119,6 +119,12 @@ class LOCKABLE SpinLock {
     return cumulative_lock_sleep_usec_;
   }
 
+  // Reset lock wait times. Called after dump
+  inline void ResetLockStats () {
+    cumulative_lock_usec_ = 0;
+    cumulative_lock_sleep_usec_ = 0;
+  }
+
   static const base::LinkerInitialized LINKER_INITIALIZED;  // backwards compat
  private:
   enum { kSpinLockFree = 0 };
