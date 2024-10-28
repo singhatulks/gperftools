@@ -128,6 +128,10 @@ class ThreadCache {
     return overall_thread_cache_size_;
   }
 
+  void ResetDbgCounters();
+
+  static void DumpThreadCacheCounters(TCMalloc_Printer* out);
+
  private:
   class FreeList {
    private:
@@ -142,6 +146,8 @@ class ThreadCache {
     // length_ > max_length_.  After the kMaxOverages'th time, max_length_
     // shrinks and length_overages_ is reset to zero.
     uint32_t length_overages_;
+    uint32_t fetch_cnt_;
+    uint32_t release_cnt_;
 #else
     // If we aren't using 64-bit pointers then pack these into less space.
     uint16_t length_;
@@ -219,6 +225,27 @@ class ThreadCache {
       ASSERT(length_ >= N);
       length_ -= N;
       if (length_ < lowater_) lowater_ = length_;
+    }
+
+    int fetch_count() const {
+      return fetch_cnt_;
+    }
+
+    void inc_fetch_count() {
+      fetch_cnt_++;
+    }
+
+    int release_count() const {
+      return release_cnt_;
+    }
+
+    void inc_release_count() {
+      release_cnt_++;
+    }
+
+    void reset_dbg_counters() {
+      fetch_cnt_ = 0;
+      release_cnt_ = 0;
     }
   };
 
@@ -316,6 +343,11 @@ class ThreadCache {
 
   pthread_t     tid_;                   // Which thread owns it
   bool          in_setspecific_;        // In call to pthread_setspecific?
+
+  size_t        scavenge_count_;
+  size_t        steal_count_;
+  size_t        stolen_count_;
+  size_t        inc_cache_failed_;
 
   // Allocate a new heap. REQUIRES: Static::pageheap_lock is held.
   static ThreadCache* NewHeap(pthread_t tid);
@@ -433,6 +465,17 @@ inline void ThreadCache::SetMinSizeForSlowPath(size_t size) {
 #ifdef HAVE_TLS
   threadlocal_data_.min_size_for_slow_path = size;
 #endif
+}
+
+inline void ThreadCache::ResetDbgCounters() {
+  scavenge_count_ = 0;
+  steal_count_ = 0;
+  stolen_count_ = 0;
+  inc_cache_failed_ = 0;
+  for (int cl = 0; cl < kNumClasses; cl++) {
+    FreeList* list = &list_[cl];
+    list->reset_dbg_counters();
+  }
 }
 
 }  // namespace tcmalloc

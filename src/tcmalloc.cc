@@ -476,9 +476,9 @@ static void DumpStats(TCMalloc_Printer* out, int level) {
 
 static void ResetLockStats() {
   for (int cl = 0; cl < kNumClasses; ++cl) {
-    Static::central_cache()[cl].Lock()
+    Static::central_cache()[cl].Lock();
     Static::central_cache()[cl].Lock_ResetLockStats();
-    Static::central_cache()[cl].Unlock()
+    Static::central_cache()[cl].Unlock();
   }
   SpinLockHolder l(Static::pageheap_lock());
   Static::pageheap_lock()->ResetLockStats();
@@ -518,7 +518,7 @@ static void DumpLockStats(TCMalloc_Printer* out) {
               (total_cc_usecs + ph_usecs) ? (static_cast<float>(total_cc_sleep_usecs + ph_sleep_usecs)/(total_cc_usecs + ph_usecs)) : 1.0);
   out->printf("------------------------------------------------\n");
 
-  ResetLockStats();
+  //ResetLockStats();
 }
 
 static void PrintStats(int level) {
@@ -529,6 +529,15 @@ static void PrintStats(int level) {
   DumpLockStats(&printer);
   write(STDERR_FILENO, buffer, strlen(buffer));
   delete[] buffer;
+
+  char* buffer1 = new char[kBufferSize * 8];
+  TCMalloc_Printer printer1(buffer1, kBufferSize * 8);
+  {
+    SpinLockHolder h(Static::pageheap_lock());
+    ThreadCache::DumpThreadCacheCounters(&printer1);
+  }
+  write(STDERR_FILENO, buffer1, strlen(buffer1));
+  delete[] buffer1;
 }
 
 static void** DumpHeapGrowthStackTraces() {

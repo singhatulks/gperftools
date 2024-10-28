@@ -118,6 +118,7 @@ void ThreadCache::Cleanup() {
 void* ThreadCache::FetchFromCentralCache(size_t cl, size_t byte_size) {
   FreeList* list = &list_[cl];
   ASSERT(list->empty());
+  list->inc_fetch_count();
   const int batch_size = Static::sizemap()->num_objects_to_move(cl);
 
   const int num_to_move = min<int>(list->max_length(), batch_size);
@@ -179,6 +180,7 @@ void ThreadCache::ListTooLong(FreeList* list, size_t cl) {
 // Remove some objects of class "cl" from thread heap and add to central cache
 void ThreadCache::ReleaseToCentralCache(FreeList* src, size_t cl, int N) {
   ASSERT(src == &list_[cl]);
+  src->inc_release_count();
   if (N > src->length()) N = src->length();
   size_t delta_bytes = N * Static::sizemap()->ByteSizeForClass(cl);
 
@@ -228,6 +230,7 @@ void ThreadCache::Scavenge() {
     }
     list->clear_lowwatermark();
   }
+  scavenge_count_++;
 
   IncreaseCacheLimit();
 }
@@ -242,6 +245,7 @@ void ThreadCache::IncreaseCacheLimitLocked() {
     // Possibly make unclaimed_cache_space_ negative.
     unclaimed_cache_space_ -= kStealAmount;
     max_size_ += kStealAmount;
+    steal_count_++;
     return;
   }
   // Don't hold pageheap_lock too long.  Try to steal from 10 other
@@ -260,11 +264,14 @@ void ThreadCache::IncreaseCacheLimitLocked() {
       continue;
     }
     next_memory_steal_->max_size_ -= kStealAmount;
+    next_memory_steal_->stolen_count_++;
     max_size_ += kStealAmount;
+    steal_count_++;
 
     next_memory_steal_ = next_memory_steal_->next_;
     return;
   }
+  inc_cache_failed_++;
 }
 
 int ThreadCache::GetSamplePeriod() {
@@ -460,6 +467,70 @@ void ThreadCache::GetThreadStats(uint64_t* total_bytes, uint64_t* class_count) {
       }
     }
   }
+}
+
+void ThreadCache::DumpThreadCacheCounters(TCMalloc_Printer* out) {
+  out->printf("------------------------------------------------\n");
+  out->printf("THREAD_CACHE: (SUMMARY) %6.1f MiB overall cache, "
+              "%2.1f MiB per thread, %4.1f MiB unclaimed\n",
+              overall_thread_cache_size_ / 1048576.0,
+              per_thread_cache_size_ / 1048576.0,
+              unclaimed_cache_space_ / 1048576.0);
+  out->printf("------------------------------------------------\n");
+
+  size_t class_fetch_count[kNumClasses] = {0};
+  size_t class_release_count[kNumClasses] = {0};
+  size_t sum_scavenge = 0;
+  size_t sum_steal = 0;
+  size_t sum_stolen = 0;
+  size_t sum_inc_cache_failed = 0;
+  size_t sum_fetches = 0;
+  size_t sum_releases = 0;
+
+  for (ThreadCache* h = thread_heaps_; h != NULL; h = h->next_) {
+    size_t total_fetch_count = 0;
+    size_t total_release_count = 0;
+
+    for (int cl = 0; cl < kNumClasses; ++cl) {
+      FreeList* list = &h->list_[cl];
+      total_fetch_count += list->fetch_count();
+      total_release_count += list->release_count();
+      class_fetch_count[cl] += list->fetch_count();
+      class_release_count[cl] += list->release_count();
+    }
+
+    out->printf("THREAD_CACHE: (HEAPS) %6ld scavenges, %6ld steals, %6ld stolen, "
+                "%6ld inc_cache_failed, %5.1f MiB max_size, %8ld fetches, "
+                "%8ld releases)\n",
+                h->scavenge_count_, h->steal_count_, h->stolen_count_,
+                h->inc_cache_failed_, h->max_size_ / 1048576.0,
+                total_fetch_count, total_release_count);
+
+    sum_scavenge += h->scavenge_count_;
+    sum_steal += h->steal_count_;
+    sum_stolen += h->stolen_count_;
+    sum_inc_cache_failed += h->inc_cache_failed_;
+    sum_fetches += total_fetch_count;
+    sum_releases += total_release_count;
+  }
+
+  out->printf("------------------------------------------------\n");
+  out->printf("THREAD_CACHE:   (SUM) %6ld scavenges, %6ld steals, %6ld stolen, "
+              "%6ld inc_cache_failed, %9ld fetches, %9ld releases)\n",
+              sum_scavenge, sum_steal, sum_stolen,
+              sum_inc_cache_failed, sum_fetches, sum_releases);
+  out->printf("------------------------------------------------\n");
+
+  for (int cl = 0; cl < kNumClasses; ++cl) {
+    out->printf("THREAD_CACHE: (CLASSES) (class %3d) %8ld fetches, %8ld releases\n",
+                cl, class_fetch_count[cl], class_release_count[cl]);
+  }
+
+  out->printf("------------------------------------------------\n");
+
+  /*for (ThreadCache* h = thread_heaps_; h != NULL; h = h->next_) {
+    h->ResetDbgCounters();
+  }*/
 }
 
 void ThreadCache::set_overall_thread_cache_size(size_t new_size) {
